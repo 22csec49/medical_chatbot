@@ -5,11 +5,11 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import google.generativeai as genai
 from pinecone import Pinecone
-from langchain.vectorstores import Pinecone as PineconeVectorStore
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.memory import ChatMessageHistory
+from langchain_community.vectorstores import Pinecone as PineconeVectorStore
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.chat_message_histories import ChatMessageHistory
 
-# Load environment variables
+# Load environment variables from .env file
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
@@ -21,25 +21,26 @@ if not GOOGLE_API_KEY or not PINECONE_API_KEY:
 app = Flask(__name__)
 CORS(app)
 
-# Configure Gemini AI
+# Configure Google Generative AI
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel("gemini-pro")
 
 # Initialize Pinecone
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
-# Check if index exists
+# Verify that the index exists in Pinecone
 index_list = pc.list_indexes().names()
 if INDEX_NAME not in index_list:
     raise ValueError(f"❌ Index '{INDEX_NAME}' not found in Pinecone. Check your Pinecone console.")
 
+# Initialize the retriever using the HuggingFace Embeddings model
 retriever = PineconeVectorStore.from_existing_index(
     INDEX_NAME,
     HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 )
 print("✅ Retriever loaded successfully!")
 
-# In-memory chat history
+# In-memory chat history (consider using a persistent store for production)
 chat_histories = {}
 
 def get_chat_history(session_id):
@@ -60,22 +61,27 @@ def generate_response_with_retry(prompt, max_retries=3, delay=5):
     return "❌ Error: Rate limit exceeded. Please try again later."
 
 def custom_rag_chain(query, session_id):
-    """Retrieves relevant documents and generates an answer with history."""
+    """Retrieves relevant documents and generates an answer using chat history."""
     history = get_chat_history(session_id)
     
-    retrieved_docs = retriever.as_retriever().invoke(query)  
+    # Retrieve documents relevant to the query
+    retrieved_docs = retriever.as_retriever().invoke(query)
     past_messages = "\n".join([f"{msg.type}: {msg.content}" for msg in history.messages])
 
     if retrieved_docs:
         retrieved_text = "\n\n".join([doc.page_content for doc in retrieved_docs])
-        prompt = f"Chat History:\n{past_messages}\n\nBased on the following medical references, answer the question:\n\n{retrieved_text}\n\nQuestion: {query}"
+        prompt = (
+            f"Chat History:\n{past_messages}\n\n"
+            f"Based on the following medical references, answer the question:\n\n{retrieved_text}\n\n"
+            f"Question: {query}"
+        )
     else:
         print("⚠️ No relevant documents found. Answering from general knowledge...")
         prompt = f"Chat History:\n{past_messages}\n\nQuestion: {query}"
 
     response = generate_response_with_retry(prompt)
 
-    # Store messages in history
+    # Update chat history
     history.add_user_message(query)
     history.add_ai_message(response)
 
@@ -85,7 +91,7 @@ def custom_rag_chain(query, session_id):
 def chat():
     data = request.json
     query = data.get("message", "")
-    session_id = data.get("session_id", "default")  # Unique identifier for each conversation
+    session_id = data.get("session_id", "default")  # Unique session identifier
 
     if not query:
         return jsonify({"error": "No message provided"}), 400
@@ -94,5 +100,6 @@ def chat():
     return jsonify({"response": response})
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Use Render's PORT
+    # Bind to the port provided by the environment (default to 5000)
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
