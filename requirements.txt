@@ -1,13 +1,11 @@
 Flask
 Flask-CORS
-sentence-transformers==2.2.2
-langchain
-pypdf
-python-dotenv
-pinecone-client[grpc]
-langchain-pinecone
-langchain_community
-langchain_openai
-langchain_experimental
 google-generativeai
+langchain
+langchain_community
+pinecone-client[grpc]
+sentence-transformers
+huggingface-hub
+python-dotenv
+pypdf
 -e .
