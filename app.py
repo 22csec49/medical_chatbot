@@ -9,6 +9,7 @@ from langchain.vectorstores import Pinecone as PineconeVectorStore
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.memory import ChatMessageHistory
 
+# Load environment variables
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
@@ -20,12 +21,16 @@ if not GOOGLE_API_KEY or not PINECONE_API_KEY:
 app = Flask(__name__)
 CORS(app)
 
+# Configure Gemini AI
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel("gemini-pro")
 
+# Initialize Pinecone
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
-if INDEX_NAME not in [index_info['name'] for index_info in pc.list_indexes()]:
+# Check if index exists
+index_list = pc.list_indexes().names()
+if INDEX_NAME not in index_list:
     raise ValueError(f"❌ Index '{INDEX_NAME}' not found in Pinecone. Check your Pinecone console.")
 
 retriever = PineconeVectorStore.from_existing_index(
@@ -34,7 +39,7 @@ retriever = PineconeVectorStore.from_existing_index(
 )
 print("✅ Retriever loaded successfully!")
 
-# In-memory chat history (Replace with Redis, MongoDB, or database for persistence)
+# In-memory chat history
 chat_histories = {}
 
 def get_chat_history(session_id):
@@ -89,4 +94,5 @@ def chat():
     return jsonify({"response": response})
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))  # Use Render's PORT
+    app.run(host="0.0.0.0", port=port, debug=True)
